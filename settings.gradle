@@ -13,6 +13,6 @@ dependencyResolutionManagement {
         maven { url "https://jitpack.io" }
     }
 }
-rootProject.name = "ripple-chain"
+rootProject.name = "xrp"
 include ':app'
-include ':ripplekit'
+include ':xrpkit'

@@ -4,11 +4,11 @@ plugins {
 }
 
 android {
-    namespace 'io.horizontalsystems.ripplekit.sample'
+    namespace 'io.horizontalsystems.xrpkit.sample'
     compileSdk 36
 
     defaultConfig {
-        applicationId "io.horizontalsystems.ripplekit.sample"
+        applicationId "io.horizontalsystems.xrpkit.sample"
         minSdk 27
         targetSdk 35
         versionCode 1
@@ -51,5 +51,5 @@ dependencies {
     implementation 'androidx.compose.material:material:1.10.3'
     debugImplementation "androidx.compose.ui:ui-tooling:$compose_version"
 
-    implementation project(':ripplekit')
+    implementation project(':xrpkit')
 }

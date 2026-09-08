@@ -75,7 +75,12 @@ internal class TransactionSyncer(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Throwable) {
-            syncState = SyncState.NotSynced(e)
+            // The account syncer owns the failure policy (it tolerates one transient blip after a
+            // successful sync) and calls setNotSynced when the failure is real. Only a first sync
+            // that never completed is reported here, so the list does not show stale "synced".
+            if (state == null || !state.initialSyncDone) {
+                syncState = SyncState.NotSynced(e)
+            }
             throw e
         }
     }

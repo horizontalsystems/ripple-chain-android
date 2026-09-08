@@ -4,6 +4,7 @@ import com.google.gson.JsonArray
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
@@ -39,6 +40,21 @@ class RpcProvider private constructor(private val endpoints: List<Endpoint>) {
         }
 
         var lastError: Throwable? = null
+        for (pass in 0 until PASSES) {
+            if (pass > 0) {
+                // Every host failed to resolve: the device's network is not up yet (typical right
+                // after the app resumes). Give it a moment instead of failing the whole sync.
+                if (lastError?.let { NetworkErrors.isDnsFailure(it) } != true) break
+                delay(DNS_RETRY_DELAY_MS)
+            }
+            lastError = callOnce(method, request) { return it }
+        }
+        throw NoEndpointAvailable(lastError)
+    }
+
+    /** Tries every endpoint once; invokes [onResult] with the first good result, else returns the last error. */
+    private suspend inline fun callOnce(method: String, request: JsonObject, onResult: (JsonObject) -> Unit): Throwable? {
+        var lastError: Throwable? = null
         for (attempt in endpoints.indices) {
             val index = (preferredIndex + attempt) % endpoints.size
             val endpoint = endpoints[index]
@@ -56,7 +72,7 @@ class RpcProvider private constructor(private val endpoints: List<Endpoint>) {
                 } else {
                     preferredIndex = index
                 }
-                return result
+                onResult(result)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: RpcError) {
@@ -66,7 +82,7 @@ class RpcProvider private constructor(private val endpoints: List<Endpoint>) {
                 lastError = e
             }
         }
-        throw NoEndpointAvailable(lastError)
+        return lastError
     }
 
     /** Null when the account has never been funded (`actNotFound`). */
@@ -225,6 +241,9 @@ class RpcProvider private constructor(private val endpoints: List<Endpoint>) {
     }
 
     companion object {
+        private const val PASSES = 2
+        private const val DNS_RETRY_DELAY_MS = 1500L
+
         fun create(urls: List<URL>, client: OkHttpClient = ApiClient.build()): RpcProvider {
             require(urls.isNotEmpty()) { "At least one RPC URL is required" }
             val endpoints = urls.map { url ->

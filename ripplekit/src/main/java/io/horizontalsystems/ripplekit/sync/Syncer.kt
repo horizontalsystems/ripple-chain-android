@@ -6,9 +6,11 @@ import io.horizontalsystems.ripplekit.database.Storage
 import io.horizontalsystems.ripplekit.models.AccountState
 import io.horizontalsystems.ripplekit.models.LedgerState
 import io.horizontalsystems.ripplekit.models.TrustLine
+import io.horizontalsystems.ripplekit.network.NetworkErrors
 import io.horizontalsystems.ripplekit.network.RpcProvider
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
@@ -30,6 +32,12 @@ internal class Syncer(
 
     private val syncing = AtomicBoolean(false)
     private var scope: CoroutineScope? = null
+
+    // A connectivity blip right after the app resumes fails one cycle and clears itself within
+    // seconds. Once the kit has synced successfully, the first transient failure keeps the
+    // current state and retries shortly; only a repeated failure is reported.
+    private var hasSyncedOnce = false
+    private var consecutiveFailures = 0
 
     var syncState: SyncState = SyncState.NotSynced(SyncError.NotStarted())
         private set(value) {
@@ -161,11 +169,28 @@ internal class Syncer(
 
             transactionSyncer.sync(serverState.validatedLedger, accountState.exists)
 
+            hasSyncedOnce = true
+            consecutiveFailures = 0
             syncState = SyncState.Synced()
         } catch (error: CancellationException) {
             throw error
         } catch (error: Throwable) {
-            syncState = SyncState.NotSynced(error)
+            consecutiveFailures++
+            val tolerate = hasSyncedOnce && consecutiveFailures < MAX_TOLERATED_FAILURES && NetworkErrors.isTransient(error)
+            if (tolerate) {
+                scope?.launch {
+                    delay(TRANSIENT_RETRY_DELAY_MS)
+                    sync()
+                }
+            } else {
+                syncState = SyncState.NotSynced(error)
+                transactionSyncer.setNotSynced(error)
+            }
         }
+    }
+
+    companion object {
+        private const val MAX_TOLERATED_FAILURES = 2
+        private const val TRANSIENT_RETRY_DELAY_MS = 3000L
     }
 }
